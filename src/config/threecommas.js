@@ -26,6 +26,13 @@ export async function createExchange(apiKey, apiSecret, params) {
   const messageToSign = `${ACCOUNTS_NEW_PATH}?${body}`;
   const signature = generateSignature(messageToSign, apiSecret);
 
+  console.log("3Commas Request Debug:");
+  console.log("URL:", `${BASE_URL}/accounts/new`);
+  console.log("Body:", body);
+  console.log("Message to sign:", messageToSign);
+  console.log("Signature:", signature);
+  console.log("API Key (first 10 chars):", apiKey.substring(0, 10) + "...");
+
   const response = await axios.post(`${BASE_URL}/accounts/new`, body, {
     headers: {
       APIKEY: apiKey,
