@@ -2,6 +2,7 @@ import axios from "axios";
 import crypto from "crypto";
 
 const BASE_URL = "https://api.3commas.io/public/api/ver1";
+const ACCOUNTS_NEW_PATH = "/public/api/ver1/accounts/new";
 
 function buildFormBody(parameters) {
   const entries = Object.entries(parameters)
@@ -21,7 +22,9 @@ function generateSignature(message, secret) {
 
 export async function createExchange(apiKey, apiSecret, params) {
   const body = buildFormBody(params);
-  const signature = generateSignature(body, apiSecret);
+  // Per 3Commas HMAC docs: sign PATH + '?' + sorted-query
+  const messageToSign = `${ACCOUNTS_NEW_PATH}?${body}`;
+  const signature = generateSignature(messageToSign, apiSecret);
 
   const response = await axios.post(`${BASE_URL}/accounts/new`, body, {
     headers: {
