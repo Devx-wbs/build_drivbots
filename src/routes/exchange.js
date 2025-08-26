@@ -36,19 +36,33 @@ router.post("/connect-binance", async (req, res) => {
 
     // Now try to connect to 3Commas
     console.log("Attempting to connect to 3Commas...");
-    const params = {
-      type: "binance",
+    const baseParams = {
       name: `User-${memberstackId}`,
       api_key: binanceApiKey,
       secret: binanceSecret,
       is_paper: false,
     };
 
-    const response = await createExchange(
-      process.env.THREE_COMMAS_API_KEY,
-      process.env.THREE_COMMAS_SECRET,
-      params
-    );
+    const typesToTry = ["binance", "binance_spot"];
+    let response;
+    let selectedType = null;
+    for (const t of typesToTry) {
+      selectedType = t;
+      const params = { ...baseParams, type: t };
+      try {
+        response = await createExchange(
+          process.env.THREE_COMMAS_API_KEY,
+          process.env.THREE_COMMAS_SECRET,
+          params
+        );
+        if (response) break;
+      } catch (e) {
+        console.warn(
+          `3Commas create failed for type ${t}:`,
+          e.response?.data || e.message
+        );
+      }
+    }
 
     console.log("3Commas createExchange response:", response);
 
@@ -60,7 +74,11 @@ router.post("/connect-binance", async (req, res) => {
         process.env.THREE_COMMAS_SECRET
       );
       const matched = accounts.find(
-        (a) => a?.name === `User-${memberstackId}` && a?.type === "binance"
+        (a) =>
+          a?.name === `User-${memberstackId}` &&
+          (a?.type === selectedType ||
+            a?.type === "binance" ||
+            a?.type === "binance_spot")
       );
       if (!matched) {
         return res.status(400).json({
