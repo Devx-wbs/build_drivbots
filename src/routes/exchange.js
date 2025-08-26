@@ -50,6 +50,15 @@ router.post("/connect-binance", async (req, res) => {
       params
     );
 
+    console.log("3Commas createExchange response:", response);
+
+    if (!response || response.id === undefined || response.id === null) {
+      return res.status(400).json({
+        error: "3Commas did not return an account id",
+        details: response,
+      });
+    }
+
     // Save mapping in Mongo
     const exchange = await UserExchange.create({
       memberstackId,
