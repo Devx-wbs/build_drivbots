@@ -50,6 +50,9 @@ export async function createExchange(apiKey, apiSecret, params) {
     console.log("3Commas JSON Response status:", responseJson.status);
     console.log("3Commas JSON Response data:", responseJson.data);
     const jsonData = responseJson.data;
+    if (!jsonData || responseJson.status === 204) {
+      throw new Error("Empty JSON create response (204)");
+    }
     const detectedId =
       jsonData?.id ||
       jsonData?.account_id ||
@@ -98,18 +101,40 @@ export async function createExchange(apiKey, apiSecret, params) {
 
 // List all connected accounts (JSON ver1 API). Returns array.
 export async function listAccounts(apiKey, apiSecret) {
-  const path = "/ver1/accounts";
-  const messageToSign = path; // GET with no params
-  const signature = generateSignature(messageToSign, apiSecret);
+  // Attempt 1: JSON ver1
+  try {
+    const path = "/ver1/accounts";
+    const messageToSign = path; // GET with no params
+    const signature = generateSignature(messageToSign, apiSecret);
 
-  const resp = await axios.get(`${BASE_URL_JSON}/accounts`, {
+    const resp = await axios.get(`${BASE_URL_JSON}/accounts`, {
+      headers: {
+        APIKEY: apiKey,
+        Signature: signature,
+      },
+    });
+
+    console.log("3Commas LIST JSON status:", resp.status);
+    if (resp.status !== 204 && resp.data) {
+      return Array.isArray(resp.data) ? resp.data : [];
+    }
+    throw new Error(`Empty list (status ${resp.status})`);
+  } catch (e) {
+    console.warn(
+      "3Commas LIST JSON failed, trying public API...",
+      e.response?.data || e.message
+    );
+  }
+
+  // Attempt 2: public API
+  const publicPath = "/public/api/ver1/accounts";
+  const publicSignature = generateSignature(publicPath, apiSecret);
+  const publicResp = await axios.get(`${BASE_URL_FORM}/accounts`, {
     headers: {
       APIKEY: apiKey,
-      Signature: signature,
+      Signature: publicSignature,
     },
   });
-
-  console.log("3Commas LIST Response status:", resp.status);
-  // Expect an array
-  return Array.isArray(resp.data) ? resp.data : [];
+  console.log("3Commas LIST PUBLIC status:", publicResp.status);
+  return Array.isArray(publicResp.data) ? publicResp.data : [];
 }
