@@ -95,3 +95,21 @@ export async function createExchange(apiKey, apiSecret, params) {
     formData?.data?.account_id;
   return { id: detectedId, raw: formData };
 }
+
+// List all connected accounts (JSON ver1 API). Returns array.
+export async function listAccounts(apiKey, apiSecret) {
+  const path = "/ver1/accounts";
+  const messageToSign = path; // GET with no params
+  const signature = generateSignature(messageToSign, apiSecret);
+
+  const resp = await axios.get(`${BASE_URL_JSON}/accounts`, {
+    headers: {
+      APIKEY: apiKey,
+      Signature: signature,
+    },
+  });
+
+  console.log("3Commas LIST Response status:", resp.status);
+  // Expect an array
+  return Array.isArray(resp.data) ? resp.data : [];
+}

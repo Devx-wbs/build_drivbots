@@ -1,6 +1,6 @@
 import express from "express";
 import UserExchange from "../models/UserExchange.js";
-import { createExchange } from "../config/threecommas.js";
+import { createExchange, listAccounts } from "../config/threecommas.js";
 import axios from "axios";
 import crypto from "crypto";
 
@@ -52,11 +52,23 @@ router.post("/connect-binance", async (req, res) => {
 
     console.log("3Commas createExchange response:", response);
 
-    if (!response || response.id === undefined || response.id === null) {
-      return res.status(400).json({
-        error: "3Commas did not return an account id",
-        details: response?.raw ?? response,
-      });
+    let threeCommasId = response?.id;
+    if (threeCommasId === undefined || threeCommasId === null) {
+      // Fallback: 3Commas returned 204 No Content; fetch accounts and find by name/type
+      const accounts = await listAccounts(
+        process.env.THREE_COMMAS_API_KEY,
+        process.env.THREE_COMMAS_SECRET
+      );
+      const matched = accounts.find(
+        (a) => a?.name === `User-${memberstackId}` && a?.type === "binance"
+      );
+      if (!matched) {
+        return res.status(400).json({
+          error: "3Commas did not return an account id and lookup failed",
+          details: response?.raw ?? response,
+        });
+      }
+      threeCommasId = matched.id;
     }
 
     // Save mapping in Mongo
@@ -64,7 +76,7 @@ router.post("/connect-binance", async (req, res) => {
       memberstackId,
       binanceApiKey,
       binanceSecret,
-      threeCommasAccountId: response.id,
+      threeCommasAccountId: threeCommasId,
     });
 
     res.json({ success: true, account: exchange });
