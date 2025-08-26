@@ -136,5 +136,17 @@ export async function listAccounts(apiKey, apiSecret) {
     },
   });
   console.log("3Commas LIST PUBLIC status:", publicResp.status);
-  return Array.isArray(publicResp.data) ? publicResp.data : [];
+  const arr = Array.isArray(publicResp.data) ? publicResp.data : [];
+  try {
+    console.log(
+      "3Commas LIST PUBLIC sample:",
+      arr.slice(0, 5).map((a) => ({
+        id: a?.id,
+        name: a?.name,
+        type: a?.type || a?.market_code || a?.market,
+        exchange: a?.exchange_name || a?.market_title,
+      }))
+    );
+  } catch (_) {}
+  return arr;
 }
