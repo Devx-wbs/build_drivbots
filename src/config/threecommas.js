@@ -47,8 +47,15 @@ export async function createExchange(apiKey, apiSecret, params) {
         },
       }
     );
-
-    return responseJson.data;
+    console.log("3Commas JSON Response status:", responseJson.status);
+    console.log("3Commas JSON Response data:", responseJson.data);
+    const jsonData = responseJson.data;
+    const detectedId =
+      jsonData?.id ||
+      jsonData?.account_id ||
+      jsonData?.data?.id ||
+      jsonData?.data?.account_id;
+    return { id: detectedId, raw: jsonData };
   } catch (err) {
     console.warn(
       "3Commas JSON attempt failed, trying form-encoded public API...",
@@ -78,6 +85,13 @@ export async function createExchange(apiKey, apiSecret, params) {
       },
     }
   );
-
-  return responseForm.data;
+  console.log("3Commas FORM Response status:", responseForm.status);
+  console.log("3Commas FORM Response data:", responseForm.data);
+  const formData = responseForm.data;
+  const detectedId =
+    formData?.id ||
+    formData?.account_id ||
+    formData?.data?.id ||
+    formData?.data?.account_id;
+  return { id: detectedId, raw: formData };
 }

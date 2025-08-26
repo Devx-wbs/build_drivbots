@@ -55,7 +55,7 @@ router.post("/connect-binance", async (req, res) => {
     if (!response || response.id === undefined || response.id === null) {
       return res.status(400).json({
         error: "3Commas did not return an account id",
-        details: response,
+        details: response?.raw ?? response,
       });
     }
 
