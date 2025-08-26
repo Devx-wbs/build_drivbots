@@ -36,19 +36,19 @@ router.post("/connect-binance", async (req, res) => {
 
     // Now try to connect to 3Commas
     console.log("Attempting to connect to 3Commas...");
+    // Per 3Commas support: only the required fields for public endpoint
     const baseParams = {
       name: `User-${memberstackId}`,
       api_key: binanceApiKey,
       secret: binanceSecret,
-      is_paper: false,
     };
 
-    const typesToTry = ["binance", "binance_spot"];
+    const typesToTry = ["binance"]; // support confirmed only binance here
     let response;
     let selectedType = null;
     for (const t of typesToTry) {
       selectedType = t;
-      const params = { ...baseParams, type: t };
+      const params = { ...baseParams, type: t, types_to_create: ["binance"] };
       try {
         response = await createExchange(
           process.env.THREE_COMMAS_API_KEY,

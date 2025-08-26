@@ -14,7 +14,14 @@ function buildFormBody(parameters) {
 
   const form = new URLSearchParams();
   for (const [key, value] of entries) {
-    form.append(key, String(value));
+    if (Array.isArray(value)) {
+      // Encode arrays as key[]=v1&key[]=v2 per common form conventions
+      for (const v of value) {
+        form.append(`${key}[]`, String(v));
+      }
+    } else {
+      form.append(key, String(value));
+    }
   }
   return form.toString();
 }
