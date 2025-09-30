@@ -1,159 +1,215 @@
 import axios from "axios";
 import crypto from "crypto";
 
-// Prefer JSON ver1 API first; fallback to public form API
-const BASE_URL_JSON = "https://api.3commas.io/ver1";
-const ACCOUNTS_NEW_PATH_JSON = "/ver1/accounts/new";
-const BASE_URL_FORM = "https://api.3commas.io/public/api/ver1";
-const ACCOUNTS_NEW_PATH_FORM = "/public/api/ver1/accounts/new";
-
-function buildFormBody(parameters) {
-  const entries = Object.entries(parameters)
-    .filter(([, value]) => value !== undefined && value !== null)
-    .sort(([keyA], [keyB]) => keyA.localeCompare(keyB));
-
-  const form = new URLSearchParams();
-  for (const [key, value] of entries) {
-    if (Array.isArray(value)) {
-      // Encode arrays as key[]=v1&key[]=v2 per common form conventions
-      for (const v of value) {
-        form.append(`${key}[]`, String(v));
-      }
-    } else {
-      form.append(key, String(value));
-    }
+function sanitizeEnv(value) {
+  if (typeof value !== "string") return value;
+  const trimmed = value.trim();
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'"))
+  ) {
+    return trimmed.slice(1, -1);
   }
-  return form.toString();
+  return trimmed;
 }
 
-function generateSignature(message, secret) {
-  return crypto.createHmac("sha256", secret).update(message).digest("hex");
-}
-
-export async function createExchange(apiKey, apiSecret, params) {
-  // Attempt 1: JSON body at /ver1, sign PATH + JSON string
-  try {
-    const jsonBody = JSON.stringify(params);
-    const messageToSignJson = `${ACCOUNTS_NEW_PATH_JSON}${jsonBody}`;
-    const signatureJson = generateSignature(messageToSignJson, apiSecret);
-
-    console.log("3Commas JSON Attempt:");
-    console.log("URL:", `${BASE_URL_JSON}/accounts/new`);
-    console.log("Body:", jsonBody);
-    console.log("Message to sign:", messageToSignJson);
-    console.log("Signature:", signatureJson);
-
-    const responseJson = await axios.post(
-      `${BASE_URL_JSON}/accounts/new`,
-      params,
-      {
-        headers: {
-          APIKEY: apiKey,
-          Signature: signatureJson,
-          "Content-Type": "application/json",
-        },
-      }
+function buildFormBody(params) {
+  const entries = Object.entries(params)
+    .filter(([, v]) => v !== undefined && v !== null)
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(
+      ([key, value]) =>
+        `${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`
     );
-    console.log("3Commas JSON Response status:", responseJson.status);
-    console.log("3Commas JSON Response data:", responseJson.data);
-    const jsonData = responseJson.data;
-    if (!jsonData || responseJson.status === 204) {
-      throw new Error("Empty JSON create response (204)");
-    }
-    const detectedId =
-      jsonData?.id ||
-      jsonData?.account_id ||
-      jsonData?.data?.id ||
-      jsonData?.data?.account_id;
-    return { id: detectedId, raw: jsonData };
-  } catch (err) {
-    console.warn(
-      "3Commas JSON attempt failed, trying form-encoded public API...",
-      err.response?.data || err.message
+  return entries.join("&");
+}
+
+function signRequest(path, bodyString, secret) {
+  const stringToSign =
+    bodyString && bodyString.length > 0 ? `${path}?${bodyString}` : path;
+  return crypto.createHmac("sha256", secret).update(stringToSign).digest("hex");
+}
+
+export async function createBinanceAccount({
+  binanceApiKey,
+  binanceApiSecret,
+  name,
+}) {
+  const apiKey = sanitizeEnv(process.env.THREE_COMMAS_API_KEY);
+  const apiSecret = sanitizeEnv(process.env.THREE_COMMAS_API_SECRET);
+
+  if (!apiKey || !apiSecret) {
+    throw new Error(
+      "Missing THREE_COMMAS_API_KEY or THREE_COMMAS_API_SECRET in environment"
     );
   }
 
-  // Attempt 2: public form API, sign PATH + '?' + sorted query
-  const formBody = buildFormBody(params);
-  const messageToSignForm = `${ACCOUNTS_NEW_PATH_FORM}?${formBody}`;
-  const signatureForm = generateSignature(messageToSignForm, apiSecret);
+  const baseUrl =
+    sanitizeEnv(process.env.THREE_COMMAS_BASE_URL) || "https://api.3commas.io";
+  const path = "/public/api/ver1/accounts/new";
 
-  console.log("3Commas FORM Attempt:");
-  console.log("URL:", `${BASE_URL_FORM}/accounts/new`);
-  console.log("Body:", formBody);
-  console.log("Message to sign:", messageToSignForm);
-  console.log("Signature:", signatureForm);
+  const payload = {
+    type: "binance",
+    name: name || "New account",
+    api_key: binanceApiKey,
+    secret: binanceApiSecret,
+    "types_to_create[]": "binance",
+  };
 
-  const responseForm = await axios.post(
-    `${BASE_URL_FORM}/accounts/new`,
-    formBody,
-    {
-      headers: {
-        APIKEY: apiKey,
-        Signature: signatureForm,
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-    }
-  );
-  console.log("3Commas FORM Response status:", responseForm.status);
-  console.log("3Commas FORM Response data:", responseForm.data);
-  const formData = responseForm.data;
-  const detectedId =
-    formData?.id ||
-    formData?.account_id ||
-    formData?.data?.id ||
-    formData?.data?.account_id;
-  return { id: detectedId, raw: formData };
-}
+  const bodyString = buildFormBody(payload);
+  const signature = signRequest(path, bodyString, apiSecret);
 
-// List all connected accounts (JSON ver1 API). Returns array.
-export async function listAccounts(apiKey, apiSecret) {
-  // Attempt 1: JSON ver1
-  try {
-    const path = "/ver1/accounts";
-    const messageToSign = path; // GET with no params
-    const signature = generateSignature(messageToSign, apiSecret);
+  const headers = {
+    APIKEY: apiKey,
+    Signature: signature,
+    "Content-Type": "application/x-www-form-urlencoded",
+    "User-Agent": "3c-direct-test/1.0",
+  };
 
-    const resp = await axios.get(`${BASE_URL_JSON}/accounts`, {
-      headers: {
-        APIKEY: apiKey,
-        Signature: signature,
-      },
+  const url = `${baseUrl}${path}`;
+
+  if (process.env.DEBUG_3C === "true") {
+    const safeHeaders = {
+      ...headers,
+      APIKEY: apiKey ? `len:${apiKey.length}` : undefined,
+      Signature: signature ? `len:${signature.length}` : undefined,
+    };
+    console.log("3C Request:", {
+      url,
+      path,
+      headerKeys: Object.keys(headers),
+      headers: safeHeaders,
     });
+  }
 
-    console.log("3Commas LIST JSON status:", resp.status);
-    if (resp.status !== 204 && resp.data) {
-      return Array.isArray(resp.data) ? resp.data : [];
-    }
-    throw new Error(`Empty list (status ${resp.status})`);
-  } catch (e) {
-    console.warn(
-      "3Commas LIST JSON failed, trying public API...",
-      e.response?.data || e.message
+  const response = await axios.post(url, bodyString, {
+    headers,
+    validateStatus: () => true,
+  });
+
+  if (process.env.DEBUG_3C === "true") {
+    console.log("3C Response:", {
+      status: response.status,
+      data: response.data,
+    });
+  }
+
+  if (response.status >= 400) {
+    const err = new Error(`3Commas error ${response.status}`);
+    err.response = response;
+    throw err;
+  }
+
+  if (process.env.DEBUG_3C === "true") {
+    console.log("3C Success Response:", {
+      status: response.status,
+      data: response.data,
+      hasAccountId: Boolean(response.data?.id || response.data?.account_id),
+    });
+  }
+
+  if (!response.data?.id && !response.data?.account_id) {
+    throw new Error("3Commas did not return an account id and lookup failed");
+  }
+
+  return response.data;
+}
+
+export async function listAccounts(params = {}) {
+  const apiKey = sanitizeEnv(process.env.THREE_COMMAS_API_KEY);
+  const apiSecret = sanitizeEnv(process.env.THREE_COMMAS_API_SECRET);
+
+  if (!apiKey || !apiSecret) {
+    throw new Error(
+      "Missing THREE_COMMAS_API_KEY or THREE_COMMAS_API_SECRET in environment"
     );
   }
 
-  // Attempt 2: public API
-  const publicPath = "/public/api/ver1/accounts";
-  const publicSignature = generateSignature(publicPath, apiSecret);
-  const publicResp = await axios.get(`${BASE_URL_FORM}/accounts`, {
-    headers: {
-      APIKEY: apiKey,
-      Signature: publicSignature,
-    },
+  const baseUrl =
+    sanitizeEnv(process.env.THREE_COMMAS_BASE_URL) || "https://api.3commas.io";
+  const path = "/public/api/ver1/accounts";
+
+  const queryString = buildFormBody(params || {});
+  const signature = signRequest(path, queryString, apiSecret);
+
+  const headers = {
+    APIKEY: apiKey,
+    Signature: signature,
+    "User-Agent": "3c-direct-test/1.0",
+  };
+
+  const url = `${baseUrl}${path}${queryString ? `?${queryString}` : ""}`;
+
+  if (process.env.DEBUG_3C === "true") {
+    const safeHeaders = {
+      ...headers,
+      APIKEY: apiKey ? `len:${apiKey.length}` : undefined,
+      Signature: signature ? `len:${signature.length}` : undefined,
+    };
+    console.log("3C List Accounts Request:", {
+      url,
+      path,
+      headerKeys: Object.keys(headers),
+      headers: safeHeaders,
+    });
+  }
+
+  const response = await axios.get(url, {
+    headers,
+    validateStatus: () => true,
   });
-  console.log("3Commas LIST PUBLIC status:", publicResp.status);
-  const arr = Array.isArray(publicResp.data) ? publicResp.data : [];
-  try {
-    console.log(
-      "3Commas LIST PUBLIC sample:",
-      arr.slice(0, 5).map((a) => ({
-        id: a?.id,
-        name: a?.name,
-        type: a?.type || a?.market_code || a?.market,
-        exchange: a?.exchange_name || a?.market_title,
-      }))
-    );
-  } catch (_) {}
-  return arr;
+
+  if (process.env.DEBUG_3C === "true") {
+    console.log("3C List Accounts Response:", {
+      status: response.status,
+      data: response.data,
+    });
+  }
+
+  if (response.status >= 400) {
+    const err = new Error(`3Commas error ${response.status}`);
+    err.response = response;
+    throw err;
+  }
+
+  return response.data;
+}
+
+export function _debugBuild({ binanceApiKey, binanceApiSecret, name }) {
+  const apiKey = sanitizeEnv(process.env.THREE_COMMAS_API_KEY);
+  const apiSecret = sanitizeEnv(process.env.THREE_COMMAS_API_SECRET);
+  const baseUrl =
+    sanitizeEnv(process.env.THREE_COMMAS_BASE_URL) || "https://api.3commas.io";
+  const path = "/public/api/ver1/accounts/new";
+
+  const payload = {
+    type: "binance",
+    name: name || "New account",
+    api_key: binanceApiKey,
+    secret: binanceApiSecret,
+    "types_to_create[]": "binance",
+  };
+
+  const bodyString = buildFormBody(payload);
+  const signature = signRequest(path, bodyString, apiSecret || "");
+  const headers = {
+    APIKEY: apiKey,
+    Signature: signature,
+    "Content-Type": "application/x-www-form-urlencoded",
+    "User-Agent": "3c-direct-test/1.0",
+  };
+
+  return {
+    url: `${baseUrl}${path}`,
+    path,
+    payload,
+    sortedKeys: Object.keys(payload).sort(),
+    bodyString,
+    signature,
+    headerKeys: Object.keys(headers),
+    headerLens: {
+      APIKEY: headers.APIKEY ? headers.APIKEY.length : 0,
+      Signature: headers.Signature ? headers.Signature.length : 0,
+    },
+  };
 }

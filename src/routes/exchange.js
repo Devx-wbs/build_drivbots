@@ -1,6 +1,6 @@
 import express from "express";
 import UserExchange from "../models/UserExchange.js";
-import { createExchange, listAccounts } from "../config/threecommas.js";
+import { createBinanceAccount, listAccounts } from "../config/threecommas.js";
 import axios from "axios";
 import crypto from "crypto";
 
@@ -34,59 +34,30 @@ router.post("/connect-binance", async (req, res) => {
     await validateBinanceKeys(binanceApiKey, binanceSecret);
     console.log("✅ Binance API keys are valid!");
 
-    // Now try to connect to 3Commas
-    console.log("Attempting to connect to 3Commas...");
-    // Per 3Commas support: only the required fields for public endpoint
-    const baseParams = {
+    // Now try to connect to 3Commas with updated flow
+    console.log("Attempting to connect to 3Commas (new flow)...");
+    const response = await createBinanceAccount({
+      binanceApiKey,
+      binanceApiSecret: binanceSecret,
       name: `User-${memberstackId}`,
-      api_key: binanceApiKey,
-      secret: binanceSecret,
-    };
+    });
 
-    const typesToTry = ["binance"]; // support confirmed only binance here
-    let response;
-    let selectedType = null;
-    for (const t of typesToTry) {
-      selectedType = t;
-      const params = { ...baseParams, type: t, types_to_create: ["binance"] };
-      try {
-        response = await createExchange(
-          process.env.THREE_COMMAS_API_KEY,
-          process.env.THREE_COMMAS_SECRET,
-          params
-        );
-        if (response) break;
-      } catch (e) {
-        console.warn(
-          `3Commas create failed for type ${t}:`,
-          e.response?.data || e.message
-        );
-      }
-    }
-
-    console.log("3Commas createExchange response:", response);
-
-    let threeCommasId = response?.id;
+    // Prefer id/account_id from response, otherwise fallback to lookup
+    let threeCommasId = response?.id || response?.account_id;
     if (threeCommasId === undefined || threeCommasId === null) {
-      // Fallback: 3Commas returned 204 No Content; fetch accounts and find by name/type
-      const accounts = await listAccounts(
-        process.env.THREE_COMMAS_API_KEY,
-        process.env.THREE_COMMAS_SECRET
-      );
+      const accounts = await listAccounts();
       const matched = accounts.find(
         (a) =>
           a?.name === `User-${memberstackId}` &&
-          (a?.type === selectedType ||
-            a?.type === "binance" ||
-            a?.type === "binance_spot")
+          (a?.type === "binance" || a?.type === "binance_spot")
       );
       if (!matched) {
         return res.status(400).json({
           error: "3Commas did not return an account id and lookup failed",
-          details: response?.raw ?? response,
+          details: response,
         });
       }
-      threeCommasId = matched.id;
+      threeCommasId = matched.id || matched.account_id;
     }
 
     // Save mapping in Mongo
@@ -110,7 +81,10 @@ router.post("/connect-binance", async (req, res) => {
         error:
           "3Commas cannot connect to your Binance account. Please check: 1) IP whitelist includes 3Commas servers, 2) API key has 'Enable Spot & Margin Trading' permission, 3) Account is not restricted.",
       });
-    } else if (err.message.includes("Request failed with status code 401")) {
+    } else if (
+      err.message?.includes &&
+      err.message.includes("Request failed with status code 401")
+    ) {
       res.status(400).json({ error: "Invalid Binance API key or secret" });
     } else {
       res.status(500).json({ error: "Failed to connect exchange" });
